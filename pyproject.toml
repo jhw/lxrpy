@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lxrpy"
+version = "0.1.0"
+description = "Python tools for Erica Synths LXR-02 drum synthesizer files"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+keywords = ["erica-synths", "lxr-02", "drum-machine", "music", "audio", "synthesizer"]
+
+[project.scripts]
+lxr-list = "lxr.scripts.list_card:main"
+lxr-copy = "lxr.scripts.copy_to_card:main"
+lxr-clean = "lxr.scripts.clean_card:main"
+
+[project.urls]
+Homepage = "https://github.com/jhw/lxrpy"
+Repository = "https://github.com/jhw/lxrpy"
+
+[tool.setuptools]
+packages = ["lxr", "lxr.scripts"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"lxr" = ["templates/*.SND", "templates/*.PAT", "templates/*.CFG"]

@@ -1,0 +1,1 @@
+# lxrpy has no external dependencies - stdlib only
