@@ -17,7 +17,7 @@ CONFIG_SIZE = 30
 # Offsets
 BPM_OFFSET = 0
 MIDI_CH_OFFSET = 1  # 6 bytes (V1-V6)
-MIDI_NOTE_OFFSET = 23  # 6 bytes (V1-V6)
+MIDI_NOTE_OFFSET = 22  # 6 bytes (V1-V6)
 
 
 class GlobalConfig:
@@ -149,9 +149,9 @@ class GlobalConfig:
     @property
     def bpm(self) -> int:
         """
-        BPM (tempo).
+        BPM (tempo) or sync mode.
 
-        Note: Display value 0 is stored as 1. Range is 1-255.
+        Values: 0=EXT sync, 1=MIDI sync, 2-255=BPM.
         """
         if self._data is None:
             raise ValueError("Config not initialized")
@@ -161,8 +161,8 @@ class GlobalConfig:
     def bpm(self, value: int):
         if self._data is None:
             raise ValueError("Config not initialized")
-        if not 1 <= value <= 255:
-            raise ValueError(f"BPM must be 1-255, got {value}")
+        if not 0 <= value <= 255:
+            raise ValueError(f"BPM must be 0-255, got {value}")
         self._data[BPM_OFFSET] = value
 
     def get_midi_channel(self, voice: int) -> int:

@@ -39,7 +39,7 @@ class TestGlobalConfig(unittest.TestCase):
         config = GlobalConfig.init()
 
         with self.assertRaises(ValueError):
-            config.bpm = 0
+            config.bpm = -1
         with self.assertRaises(ValueError):
             config.bpm = 256
 
