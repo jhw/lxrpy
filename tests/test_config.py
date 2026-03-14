@@ -79,10 +79,10 @@ class TestGlobalConfig(unittest.TestCase):
                 os.unlink(tmp.name)
 
     def test_midi_channel(self):
-        """Test getting and setting MIDI channel."""
+        """Test getting and setting MIDI channel for voices 1-7."""
         config = GlobalConfig.init()
 
-        for voice in range(1, 7):
+        for voice in range(1, 8):
             config.set_midi_channel(voice, voice)
             self.assertEqual(config.get_midi_channel(voice), voice)
 
@@ -93,6 +93,18 @@ class TestGlobalConfig(unittest.TestCase):
         config.set_midi_channel(1, 16)
         self.assertEqual(config.get_midi_channel(1), 16)
 
+    def test_midi_channel_voice_7(self):
+        """Test voice 7 MIDI channel uses separate offset."""
+        config = GlobalConfig.init()
+
+        config.set_midi_channel(7, 13)
+        self.assertEqual(config.get_midi_channel(7), 13)
+
+        # Ensure voice 7 doesn't interfere with voices 1-6
+        for voice in range(1, 7):
+            config.set_midi_channel(voice, 1)
+        self.assertEqual(config.get_midi_channel(7), 13)
+
     def test_midi_channel_invalid(self):
         """Test invalid MIDI channel raises error."""
         config = GlobalConfig.init()
@@ -100,17 +112,17 @@ class TestGlobalConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.set_midi_channel(0, 1)  # Invalid voice
         with self.assertRaises(ValueError):
-            config.set_midi_channel(7, 1)  # Invalid voice
+            config.set_midi_channel(8, 1)  # Invalid voice
         with self.assertRaises(ValueError):
             config.set_midi_channel(1, 0)  # Invalid channel
         with self.assertRaises(ValueError):
             config.set_midi_channel(1, 17)  # Invalid channel
 
     def test_midi_note(self):
-        """Test getting and setting MIDI note."""
+        """Test getting and setting MIDI note for voices 1-7."""
         config = GlobalConfig.init()
 
-        for voice in range(1, 7):
+        for voice in range(1, 8):
             note = 36 + voice  # C2 + offset
             config.set_midi_note(voice, note)
             self.assertEqual(config.get_midi_note(voice), note)
@@ -122,6 +134,18 @@ class TestGlobalConfig(unittest.TestCase):
         config.set_midi_note(1, 127)
         self.assertEqual(config.get_midi_note(1), 127)
 
+    def test_midi_note_voice_7(self):
+        """Test voice 7 MIDI note uses separate offset."""
+        config = GlobalConfig.init()
+
+        config.set_midi_note(7, 38)
+        self.assertEqual(config.get_midi_note(7), 38)
+
+        # Ensure voice 7 doesn't interfere with voices 1-6
+        for voice in range(1, 7):
+            config.set_midi_note(voice, 60)
+        self.assertEqual(config.get_midi_note(7), 38)
+
     def test_midi_note_invalid(self):
         """Test invalid MIDI note raises error."""
         config = GlobalConfig.init()
@@ -129,7 +153,7 @@ class TestGlobalConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.set_midi_note(0, 36)  # Invalid voice
         with self.assertRaises(ValueError):
-            config.set_midi_note(7, 36)  # Invalid voice
+            config.set_midi_note(8, 36)  # Invalid voice
         with self.assertRaises(ValueError):
             config.set_midi_note(1, -1)  # Invalid note
         with self.assertRaises(ValueError):
@@ -179,8 +203,8 @@ class TestGlobalConfig(unittest.TestCase):
         d = config.to_dict()
         self.assertEqual(d['bpm'], 120)
         self.assertEqual(d['global_midi_channel'], 5)
-        self.assertEqual(len(d['midi_channels']), 6)
-        self.assertEqual(len(d['midi_notes']), 6)
+        self.assertEqual(len(d['midi_channels']), 7)
+        self.assertEqual(len(d['midi_notes']), 7)
 
     def test_repr(self):
         """Test string representation."""

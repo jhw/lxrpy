@@ -3,11 +3,14 @@ LXR-02 Global Configuration file handling.
 
 Global config files (GLO.CFG) are 30 bytes containing:
 - BPM (1 byte)
-- MIDI channel per voice (6 bytes)
+- MIDI channel per voice V1-V6 (6 bytes)
 - Shuffle (1 byte)
-- Unknown (13 bytes)
+- Unknown (4 bytes)
+- Voice 7 MIDI channel (1 byte)
+- Unknown (8 bytes)
 - Global MIDI channel (1 byte)
-- MIDI note per voice (6 bytes)
+- MIDI note per voice V1-V6 (6 bytes)
+- Voice 7 MIDI note (1 byte)
 - Unknown (1 byte)
 """
 import os
@@ -20,8 +23,10 @@ CONFIG_SIZE = 30
 BPM_OFFSET = 0
 MIDI_CH_OFFSET = 1  # 6 bytes (V1-V6)
 SHUFFLE_OFFSET = 7
+V7_MIDI_CH_OFFSET = 12
 GLOBAL_MIDI_CH_OFFSET = 21
 MIDI_NOTE_OFFSET = 22  # 6 bytes (V1-V6)
+V7_MIDI_NOTE_OFFSET = 28
 
 
 class GlobalConfig:
@@ -188,77 +193,89 @@ class GlobalConfig:
             raise ValueError(f"Global MIDI channel must be 1-16, got {value}")
         self._data[GLOBAL_MIDI_CH_OFFSET] = value
 
+    def _midi_ch_offset(self, voice: int) -> int:
+        """Get byte offset for a voice's MIDI channel."""
+        if voice == 7:
+            return V7_MIDI_CH_OFFSET
+        return MIDI_CH_OFFSET + voice - 1
+
+    def _midi_note_offset(self, voice: int) -> int:
+        """Get byte offset for a voice's MIDI note."""
+        if voice == 7:
+            return V7_MIDI_NOTE_OFFSET
+        return MIDI_NOTE_OFFSET + voice - 1
+
     def get_midi_channel(self, voice: int) -> int:
         """
         Get MIDI channel for a voice.
 
         Args:
-            voice: Voice number (1-6).
+            voice: Voice number (1-7).
 
         Returns:
             MIDI channel (1-16).
         """
         if self._data is None:
             raise ValueError("Config not initialized")
-        if not 1 <= voice <= 6:
-            raise ValueError(f"Voice must be 1-6, got {voice}")
-        return self._data[MIDI_CH_OFFSET + voice - 1]
+        if not 1 <= voice <= 7:
+            raise ValueError(f"Voice must be 1-7, got {voice}")
+        return self._data[self._midi_ch_offset(voice)]
 
     def set_midi_channel(self, voice: int, channel: int):
         """
         Set MIDI channel for a voice.
 
         Args:
-            voice: Voice number (1-6).
+            voice: Voice number (1-7).
             channel: MIDI channel (1-16).
         """
         if self._data is None:
             raise ValueError("Config not initialized")
-        if not 1 <= voice <= 6:
-            raise ValueError(f"Voice must be 1-6, got {voice}")
+        if not 1 <= voice <= 7:
+            raise ValueError(f"Voice must be 1-7, got {voice}")
         if not 1 <= channel <= 16:
             raise ValueError(f"Channel must be 1-16, got {channel}")
-        self._data[MIDI_CH_OFFSET + voice - 1] = channel
+        self._data[self._midi_ch_offset(voice)] = channel
 
     def get_midi_note(self, voice: int) -> int:
         """
         Get MIDI note for a voice.
 
         Args:
-            voice: Voice number (1-6).
+            voice: Voice number (1-7).
 
         Returns:
             MIDI note (0-127, where C-4=48 in LXR numbering).
         """
         if self._data is None:
             raise ValueError("Config not initialized")
-        if not 1 <= voice <= 6:
-            raise ValueError(f"Voice must be 1-6, got {voice}")
-        return self._data[MIDI_NOTE_OFFSET + voice - 1]
+        if not 1 <= voice <= 7:
+            raise ValueError(f"Voice must be 1-7, got {voice}")
+        return self._data[self._midi_note_offset(voice)]
 
     def set_midi_note(self, voice: int, note: int):
         """
         Set MIDI note for a voice.
 
         Args:
-            voice: Voice number (1-6).
+            voice: Voice number (1-7).
             note: MIDI note (0-127).
         """
         if self._data is None:
             raise ValueError("Config not initialized")
-        if not 1 <= voice <= 6:
-            raise ValueError(f"Voice must be 1-6, got {voice}")
+        if not 1 <= voice <= 7:
+            raise ValueError(f"Voice must be 1-7, got {voice}")
         if not 0 <= note <= 127:
             raise ValueError(f"Note must be 0-127, got {note}")
-        self._data[MIDI_NOTE_OFFSET + voice - 1] = note
+        self._data[self._midi_note_offset(voice)] = note
 
     def to_dict(self) -> dict:
         """Export config to a dictionary."""
         return {
             'bpm': self.bpm,
             'global_midi_channel': self.global_midi_channel,
-            'midi_channels': [self.get_midi_channel(i) for i in range(1, 7)],
-            'midi_notes': [self.get_midi_note(i) for i in range(1, 7)],
+            'midi_channels': [self.get_midi_channel(i) for i in range(1, 8)],
+            'midi_notes': [self.get_midi_note(i) for i in range(1, 8)],
         }
 
     def __repr__(self) -> str:

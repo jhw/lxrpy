@@ -4,10 +4,10 @@ LXR-02 Pattern file handling.
 Pattern files (.PAT) are 3663 bytes containing:
 - 8-byte header (reserved/name)
 - 6-byte magic "PatV03"
-- 6 voice sections (512 bytes each = 448 step data + 64 flam+shift)
-- 512 bytes unknown/filler
-- Step triggers (48 bytes, 8 per voice)
-- Pattern lengths (6 bytes)
+- 7 voice sections (512 bytes each = 448 step data + 64 flam+shift)
+- Step triggers (56 bytes, 8 per voice)
+- 1 byte unknown
+- Pattern lengths (7 bytes, one per voice)
 - Kit index (1 byte)
 
 Each voice has 64 steps, each step is 7 bytes.
@@ -27,15 +27,15 @@ STEP_SIZE = 7
 VOICE_SECTION_SIZE = 512  # 448 step data + 64 flam+shift
 
 
-# Voice base offsets
-VOICE_STEP_BASES = [0x0E, 0x20E, 0x40E, 0x60E, 0x80E, 0xA0E]  # 14, 526, 1038, 1550, 2062, 2574
-VOICE_FLAM_BASES = [0x1CE, 0x3CE, 0x5CE, 0x7CE, 0x9CE, 0xBCE]  # 462, 974, 1486, 1998, 2510, 3022
+# Voice base offsets (V1-V7)
+VOICE_STEP_BASES = [0x0E, 0x20E, 0x40E, 0x60E, 0x80E, 0xA0E, 0xC0E]
+VOICE_FLAM_BASES = [0x1CE, 0x3CE, 0x5CE, 0x7CE, 0x9CE, 0xBCE, 0xDCE]
 
-# Trigger offsets (8 bytes per voice, little-endian bitmask)
-TRIGGER_BASES = [0x0E0E, 0x0E16, 0x0E1E, 0x0E26, 0x0E2E, 0x0E36]  # 3598, 3606, 3614, 3622, 3630, 3638
+# Trigger offsets (8 bytes per voice, little-endian bitmask, V1-V7)
+TRIGGER_BASES = [0x0E0E, 0x0E16, 0x0E1E, 0x0E26, 0x0E2E, 0x0E36, 0x0E3E]
 
 # Other offsets
-MIX_LEN_OFFSET = 0x0E47  # 3655 - pattern length per voice (6 bytes)
+MIX_LEN_OFFSET = 0x0E47  # 3655 - pattern length per voice (7 bytes)
 KIT_INDEX_OFFSET = 0x0E4E  # 3662 - kit index (last byte)
 
 
@@ -58,11 +58,11 @@ class Step:
 
         Args:
             pattern: Parent Pattern object.
-            voice_num: Voice number (1-6).
+            voice_num: Voice number (1-7).
             step_num: Step number (1-64).
         """
-        if not 1 <= voice_num <= 6:
-            raise ValueError(f"Voice number must be 1-6, got {voice_num}")
+        if not 1 <= voice_num <= 7:
+            raise ValueError(f"Voice number must be 1-7, got {voice_num}")
         if not 1 <= step_num <= 64:
             raise ValueError(f"Step number must be 1-64, got {step_num}")
 
@@ -78,7 +78,7 @@ class Step:
 
     @property
     def voice_num(self) -> int:
-        """Voice number (1-6)."""
+        """Voice number (1-7)."""
         return self._voice_num
 
     @property
@@ -200,10 +200,10 @@ class VoicePattern:
 
         Args:
             pattern: Parent Pattern object.
-            voice_num: Voice number (1-6).
+            voice_num: Voice number (1-7).
         """
-        if not 1 <= voice_num <= 6:
-            raise ValueError(f"Voice number must be 1-6, got {voice_num}")
+        if not 1 <= voice_num <= 7:
+            raise ValueError(f"Voice number must be 1-7, got {voice_num}")
 
         self._pattern = pattern
         self._voice_num = voice_num
@@ -212,7 +212,7 @@ class VoicePattern:
 
     @property
     def voice_num(self) -> int:
-        """Voice number (1-6)."""
+        """Voice number (1-7)."""
         return self._voice_num
 
     @property
@@ -336,7 +336,7 @@ class Pattern:
     """
     Represents an LXR-02 pattern file (.PAT).
 
-    Pattern files are 3663 bytes containing step sequencer data for 6 voices.
+    Pattern files are 3663 bytes containing step sequencer data for 7 voices.
     Always initialize from a template or existing file to preserve unmapped bytes.
 
     Example:
@@ -490,7 +490,7 @@ class Pattern:
         Get a VoicePattern object for accessing voice pattern data.
 
         Args:
-            num: Voice number (1-6).
+            num: Voice number (1-7).
 
         Returns:
             VoicePattern object.
@@ -510,15 +510,15 @@ class Pattern:
 
         Args:
             source_pattern: Source Pattern to copy from.
-            source_voice: Source voice number (1-6).
-            dest_voice: Destination voice number (1-6).
+            source_voice: Source voice number (1-7).
+            dest_voice: Destination voice number (1-7).
         """
         if self._data is None or source_pattern._data is None:
             raise ValueError("Pattern not initialized")
-        if not 1 <= source_voice <= 6:
-            raise ValueError(f"Source voice must be 1-6, got {source_voice}")
-        if not 1 <= dest_voice <= 6:
-            raise ValueError(f"Dest voice must be 1-6, got {dest_voice}")
+        if not 1 <= source_voice <= 7:
+            raise ValueError(f"Source voice must be 1-7, got {source_voice}")
+        if not 1 <= dest_voice <= 7:
+            raise ValueError(f"Dest voice must be 1-7, got {dest_voice}")
 
         src_idx = source_voice - 1
         dst_idx = dest_voice - 1
@@ -545,7 +545,7 @@ class Pattern:
         """Export pattern to a dictionary."""
         return {
             'kit_index': self.kit_index,
-            'voices': [self.voice(i).to_dict() for i in range(1, 7)]
+            'voices': [self.voice(i).to_dict() for i in range(1, 8)]
         }
 
     def __repr__(self) -> str:

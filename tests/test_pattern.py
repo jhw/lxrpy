@@ -48,7 +48,7 @@ class TestPattern(unittest.TestCase):
         """Test accessing voice patterns."""
         pattern = Pattern.init()
 
-        for i in range(1, 7):
+        for i in range(1, 8):
             voice = pattern.voice(i)
             self.assertIsInstance(voice, VoicePattern)
             self.assertEqual(voice.voice_num, i)
@@ -94,7 +94,7 @@ class TestPattern(unittest.TestCase):
 
         d = pattern.to_dict()
         self.assertEqual(d['kit_index'], 5)
-        self.assertEqual(len(d['voices']), 6)
+        self.assertEqual(len(d['voices']), 7)
 
 
 class TestVoicePattern(unittest.TestCase):
@@ -367,6 +367,67 @@ class TestCopyVoicePattern(unittest.TestCase):
 
         self.assertEqual(pat2.voice(4).length, 32)
         self.assertEqual(pat2.voice(4).get_triggers(), [1, 3, 5, 7])
+
+
+class TestVoice7Pattern(unittest.TestCase):
+    """Tests for voice 7 pattern access."""
+
+    def test_voice_7_triggers(self):
+        """Test setting and getting triggers for voice 7."""
+        pattern = Pattern.init()
+        v7 = pattern.voice(7)
+
+        v7.set_triggers([1, 2, 3, 7, 8, 9, 13, 14, 15])
+        self.assertEqual(v7.get_triggers(), [1, 2, 3, 7, 8, 9, 13, 14, 15])
+
+    def test_voice_7_clear_triggers(self):
+        """Test clearing voice 7 triggers."""
+        pattern = Pattern.init()
+        v7 = pattern.voice(7)
+
+        v7.set_triggers([1, 5, 9])
+        v7.clear_all_triggers()
+        self.assertEqual(v7.get_triggers(), [])
+
+    def test_voice_7_length(self):
+        """Test voice 7 pattern length."""
+        pattern = Pattern.init()
+        v7 = pattern.voice(7)
+
+        v7.length = 16
+        self.assertEqual(v7.length, 16)
+
+    def test_voice_7_independence(self):
+        """Test voice 7 triggers don't interfere with voices 1-6."""
+        pattern = Pattern.init()
+
+        pattern.voice(6).set_triggers([1, 5, 9, 13])
+        pattern.voice(7).set_triggers([2, 4, 6, 8])
+
+        self.assertEqual(pattern.voice(6).get_triggers(), [1, 5, 9, 13])
+        self.assertEqual(pattern.voice(7).get_triggers(), [2, 4, 6, 8])
+
+    def test_voice_7_step_data(self):
+        """Test voice 7 step data access."""
+        pattern = Pattern.init()
+        step = pattern.voice(7).step(1)
+
+        step.velocity = 100
+        step.note = 38
+        self.assertEqual(step.velocity, 100)
+        self.assertEqual(step.note, 38)
+
+    def test_copy_voice_to_7(self):
+        """Test copying voice pattern to voice 7."""
+        pat1 = Pattern.init()
+        pat2 = Pattern.init()
+
+        pat1.voice(1).length = 16
+        pat1.voice(1).set_triggers([1, 5, 9, 13])
+
+        pat2.copy_voice_from(pat1, 1, 7)
+        self.assertEqual(pat2.voice(7).length, 16)
+        self.assertEqual(pat2.voice(7).get_triggers(), [1, 5, 9, 13])
 
 
 class TestFormatPatternFilename(unittest.TestCase):
