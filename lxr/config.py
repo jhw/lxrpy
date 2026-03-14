@@ -4,7 +4,9 @@ LXR-02 Global Configuration file handling.
 Global config files (GLO.CFG) are 30 bytes containing:
 - BPM (1 byte)
 - MIDI channel per voice (6 bytes)
-- Unknown (16 bytes)
+- Shuffle (1 byte)
+- Unknown (13 bytes)
+- Global MIDI channel (1 byte)
 - MIDI note per voice (6 bytes)
 - Unknown (1 byte)
 """
@@ -17,6 +19,8 @@ CONFIG_SIZE = 30
 # Offsets
 BPM_OFFSET = 0
 MIDI_CH_OFFSET = 1  # 6 bytes (V1-V6)
+SHUFFLE_OFFSET = 7
+GLOBAL_MIDI_CH_OFFSET = 21
 MIDI_NOTE_OFFSET = 22  # 6 bytes (V1-V6)
 
 
@@ -165,6 +169,25 @@ class GlobalConfig:
             raise ValueError(f"BPM must be 0-255, got {value}")
         self._data[BPM_OFFSET] = value
 
+    @property
+    def global_midi_channel(self) -> int:
+        """
+        Global MIDI channel for receiving pattern change messages.
+
+        Values: 1-16.
+        """
+        if self._data is None:
+            raise ValueError("Config not initialized")
+        return self._data[GLOBAL_MIDI_CH_OFFSET]
+
+    @global_midi_channel.setter
+    def global_midi_channel(self, value: int):
+        if self._data is None:
+            raise ValueError("Config not initialized")
+        if not 1 <= value <= 16:
+            raise ValueError(f"Global MIDI channel must be 1-16, got {value}")
+        self._data[GLOBAL_MIDI_CH_OFFSET] = value
+
     def get_midi_channel(self, voice: int) -> int:
         """
         Get MIDI channel for a voice.
@@ -233,6 +256,7 @@ class GlobalConfig:
         """Export config to a dictionary."""
         return {
             'bpm': self.bpm,
+            'global_midi_channel': self.global_midi_channel,
             'midi_channels': [self.get_midi_channel(i) for i in range(1, 7)],
             'midi_notes': [self.get_midi_note(i) for i in range(1, 7)],
         }

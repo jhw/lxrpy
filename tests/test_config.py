@@ -43,6 +43,41 @@ class TestGlobalConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.bpm = 256
 
+    def test_global_midi_channel(self):
+        """Test getting and setting global MIDI channel."""
+        config = GlobalConfig.init()
+
+        config.global_midi_channel = 1
+        self.assertEqual(config.global_midi_channel, 1)
+
+        config.global_midi_channel = 15
+        self.assertEqual(config.global_midi_channel, 15)
+
+        config.global_midi_channel = 16
+        self.assertEqual(config.global_midi_channel, 16)
+
+    def test_global_midi_channel_invalid(self):
+        """Test invalid global MIDI channel raises error."""
+        config = GlobalConfig.init()
+
+        with self.assertRaises(ValueError):
+            config.global_midi_channel = 0
+        with self.assertRaises(ValueError):
+            config.global_midi_channel = 17
+
+    def test_global_midi_channel_save_and_load(self):
+        """Test global MIDI channel persists through save/load."""
+        config = GlobalConfig.init()
+        config.global_midi_channel = 10
+
+        with tempfile.NamedTemporaryFile(suffix='.CFG', delete=False) as tmp:
+            try:
+                config.save(tmp.name)
+                loaded = GlobalConfig.from_file(tmp.name)
+                self.assertEqual(loaded.global_midi_channel, 10)
+            finally:
+                os.unlink(tmp.name)
+
     def test_midi_channel(self):
         """Test getting and setting MIDI channel."""
         config = GlobalConfig.init()
@@ -139,8 +174,11 @@ class TestGlobalConfig(unittest.TestCase):
         config = GlobalConfig.init()
         config.bpm = 120
 
+        config.global_midi_channel = 5
+
         d = config.to_dict()
         self.assertEqual(d['bpm'], 120)
+        self.assertEqual(d['global_midi_channel'], 5)
         self.assertEqual(len(d['midi_channels']), 6)
         self.assertEqual(len(d['midi_notes']), 6)
 
