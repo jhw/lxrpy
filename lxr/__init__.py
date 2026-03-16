@@ -67,6 +67,16 @@ from .config import (
     GlobalConfig,
 )
 
+from .project import (
+    note_name,
+    read_project_name,
+    write_project_name,
+    load_kit,
+    load_kits,
+    is_populated,
+    find_empty_slot,
+)
+
 __all__ = [
     # Version
     '__version__',
@@ -91,4 +101,12 @@ __all__ = [
     'format_pattern_filename',
     # Config
     'GlobalConfig',
+    # Project utilities
+    'note_name',
+    'read_project_name',
+    'write_project_name',
+    'load_kit',
+    'load_kits',
+    'is_populated',
+    'find_empty_slot',
 ]
