@@ -246,10 +246,10 @@ class TestStep(unittest.TestCase):
 
     def test_note(self):
         """Test step note."""
-        self.step.note = 36  # C2
+        self.step.note = 36  # C3 (LXR labelling)
         self.assertEqual(self.step.note, 36)
 
-        self.step.note = 60  # C4
+        self.step.note = 60  # C5 (LXR labelling)
         self.assertEqual(self.step.note, 60)
 
         self.step.note = 0

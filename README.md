@@ -134,7 +134,7 @@ v1.set_triggers([1, 5, 9, 13])
 # Modify step data
 step = v1.step(1)
 step.velocity = 127
-step.note = 36  # C2
+step.note = 36  # C3 (LXR labelling)
 step.probability = 100
 step.flam = FlamAmount.OFF
 step.shift = 0
@@ -165,9 +165,9 @@ config.bpm = 120
 config.set_midi_channel(1, 1)   # Voice 1 on channel 1
 config.set_midi_channel(2, 2)   # Voice 2 on channel 2
 
-# Set MIDI note per voice
-config.set_midi_note(1, 36)     # Voice 1 triggers C2
-config.set_midi_note(2, 38)     # Voice 2 triggers D2
+# Set MIDI note per voice (LXR-02 labelling: MIDI 48 = C4)
+config.set_midi_note(1, 36)     # Voice 1 triggers C3
+config.set_midi_note(2, 38)     # Voice 2 triggers D3
 
 # Save
 config.save('GLO.CFG')

@@ -18,16 +18,20 @@ DEFAULT_NAMES = ['Initkit', 'Empty', '']
 
 
 def note_name(midi_note):
-    """Convert MIDI note number to name (e.g. 60 -> C4).
+    """Convert MIDI note number to LXR-02 display name (e.g. 48 -> C4, 60 -> C5).
+
+    Uses the LXR-02's own octave labelling, which is one octave higher
+    than scientific pitch notation. MIDI 48 (SPN C3) is shown as C4 on
+    the LXR; MIDI 60 (SPN C4) is shown as C5.
 
     Args:
         midi_note: MIDI note number (0-127).
 
     Returns:
-        Note name string (e.g. "C4", "F#3").
+        Note name string as the LXR-02 displays it (e.g. "C4", "F#5").
     """
     names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    octave = (midi_note // 12) - 1
+    octave = midi_note // 12
     return f"{names[midi_note % 12]}{octave}"
 
 

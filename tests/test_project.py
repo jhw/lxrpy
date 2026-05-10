@@ -17,25 +17,28 @@ from lxr import (
 
 
 class TestNoteName(unittest.TestCase):
-    """Tests for note_name function."""
+    """Tests for note_name function (LXR-02 labelling, one octave above SPN)."""
 
     def test_middle_c(self):
-        self.assertEqual(note_name(60), "C4")
+        # MIDI 60 = SPN C4, but LXR-02 shows C5
+        self.assertEqual(note_name(60), "C5")
 
-    def test_c_minus_1(self):
-        self.assertEqual(note_name(0), "C-1")
+    def test_lowest(self):
+        # MIDI 0 = SPN C-1, LXR shows C0
+        self.assertEqual(note_name(0), "C0")
 
     def test_sharps(self):
-        self.assertEqual(note_name(61), "C#4")
-        self.assertEqual(note_name(66), "F#4")
+        self.assertEqual(note_name(61), "C#5")
+        self.assertEqual(note_name(66), "F#5")
 
     def test_octave_boundaries(self):
-        self.assertEqual(note_name(12), "C0")
-        self.assertEqual(note_name(24), "C1")
-        self.assertEqual(note_name(48), "C3")
+        self.assertEqual(note_name(12), "C1")
+        self.assertEqual(note_name(24), "C2")
+        # MIDI 48 = LXR's "C4" (the default root note)
+        self.assertEqual(note_name(48), "C4")
 
     def test_high_note(self):
-        self.assertEqual(note_name(127), "G9")
+        self.assertEqual(note_name(127), "G10")
 
 
 class TestProjectName(unittest.TestCase):

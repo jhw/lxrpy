@@ -180,7 +180,7 @@ class TestGlobalConfig(unittest.TestCase):
         config = GlobalConfig.init()
         config.bpm = 128
         config.set_midi_channel(1, 3)
-        config.set_midi_note(1, 48)  # C3
+        config.set_midi_note(1, 48)  # C4 (LXR labelling)
 
         with tempfile.NamedTemporaryFile(suffix='.CFG', delete=False) as tmp:
             try:
