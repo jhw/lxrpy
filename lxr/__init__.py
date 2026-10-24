@@ -37,7 +37,7 @@ Example usage:
     dest_pat.copy_voice_from(source_pat, 1, 2)  # Copy V1 pattern to V2
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 from .enums import (
     Waveform,
