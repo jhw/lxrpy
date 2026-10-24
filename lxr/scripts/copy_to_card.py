@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Copy kit and pattern files to the LXR-02 SD card.
+Copy kit, pattern and song files to the LXR-02 SD card.
 
-This script copies .SND and .PAT files to a specified project on the SD card,
-with proper filename formatting and index management.
+This script copies .SND, .PAT and .SNG files to a specified project on the SD
+card, with proper filename formatting and index management.
+
+The LXR loads files by index (NN-*.EXT), so any existing file with the same
+index is treated as a conflict and replaced with --force, whatever its name.
 
 Usage:
     # Copy a kit to project 00 at index 10
@@ -52,24 +55,49 @@ def format_filename(index, name, extension):
     return f"{index:02d}-{short_name}{extension}"
 
 
+def find_index_conflicts(project_path, index, extension):
+    """
+    Find existing files in a project that use the given index and extension.
+
+    The firmware opens files with a wildcard (NN-*.EXT) and takes the first
+    match, so two files with the same index make the loaded one ambiguous.
+
+    Returns:
+        List of Path objects.
+    """
+    prefix = f"{index:02d}-"
+    return sorted(
+        f for f in project_path.iterdir()
+        if f.is_file() and f.name.upper().startswith(prefix) and f.suffix.upper() == extension
+    )
+
+
 def copy_file(src_path, dest_path, force=False):
     """
-    Copy a file to the destination.
+    Copy a file to the destination, replacing any file with the same index.
 
     Args:
         src_path: Source file path
-        dest_path: Destination file path
-        force: Overwrite if exists
+        dest_path: Destination file path (NN-NAME.EXT)
+        force: Overwrite/remove existing files with the same index
 
     Returns:
         Tuple of (success, message)
     """
-    if dest_path.exists() and not force:
-        return False, f"Destination exists: {dest_path.name} (use --force to overwrite)"
+    index = int(dest_path.name[:2])
+    conflicts = find_index_conflicts(dest_path.parent, index, dest_path.suffix.upper())
+    if conflicts and not force:
+        names = ', '.join(f.name for f in conflicts)
+        return False, f"Index {index:02d} already used by {names} (use --force to replace)"
 
     try:
+        for f in conflicts:
+            if f.name != dest_path.name:
+                f.unlink()
         shutil.copy2(src_path, dest_path)
-        return True, f"Copied to {dest_path.name}"
+        replaced = [f.name for f in conflicts if f.name != dest_path.name]
+        suffix = f" (replaced {', '.join(replaced)})" if replaced else ""
+        return True, f"Copied to {dest_path.name}{suffix}"
     except Exception as e:
         return False, f"Failed to copy: {e}"
 
@@ -95,6 +123,7 @@ Examples:
 Filename format:
   NN-XXXXX.SND (kits)
   NN-XXXXX.PAT (patterns)
+  NN-XXXXX.SNG (songs)
 
   Where NN is 00-63 and XXXXX is up to 5 characters.
 
@@ -102,10 +131,13 @@ Notes:
   - Project must exist on SD card (PROJ00-PROJ63)
   - Index must be 0-63
   - Name is truncated to 5 characters and uppercased
+  - An existing file with the same index is a conflict, whatever its name
+  - Files appear on the LXR after loading the project; at power-on it restores
+    its working state from /TMP instead
         """
     )
 
-    parser.add_argument('files', nargs='+', help='Files to copy (.SND or .PAT)')
+    parser.add_argument('files', nargs='+', help='Files to copy (.SND, .PAT or .SNG)')
     parser.add_argument('--project', type=int, required=True,
                         help='Project number (0-63)')
     parser.add_argument('--index', type=int,
@@ -150,6 +182,8 @@ Notes:
             return 1
 
         print(f"Project found: {project_path}")
+        if not (project_path / 'PRJ.NFO').exists():
+            print("Warning: PRJ.NFO missing; the LXR will refuse to load this project")
         print()
 
         # Process files
@@ -167,7 +201,7 @@ Notes:
 
             # Determine file type
             ext = src_file.suffix.upper()
-            if ext not in ['.SND', '.PAT']:
+            if ext not in ['.SND', '.PAT', '.SNG']:
                 print(f"  Skip: {src_file.name} (unsupported type)")
                 failed += 1
                 continue
@@ -190,7 +224,7 @@ Notes:
             # Copy file
             success, message = copy_file(src_file, dest_path, args.force)
             if success:
-                print(f"  OK: {src_file.name} -> {dest_name}")
+                print(f"  OK: {src_file.name} - {message}")
                 copied += 1
             else:
                 print(f"  FAIL: {src_file.name} - {message}")

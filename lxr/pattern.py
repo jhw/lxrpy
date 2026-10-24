@@ -2,25 +2,28 @@
 LXR-02 Pattern file handling.
 
 Pattern files (.PAT) are 3663 bytes containing:
-- 8-byte header (reserved/name)
+- 8-byte pattern name
 - 6-byte magic "PatV03"
 - 7 voice sections (512 bytes each = 448 step data + 64 flam+shift)
-- Step triggers (56 bytes, 8 per voice)
-- 1 byte unknown
+- Step triggers (56 bytes, 4 x 16-bit words per voice = 64-bit bitmask)
+- Shuffle (1 byte, 0-127)
 - Pattern lengths (7 bytes, one per voice)
 - Kit index (1 byte)
 
-Each voice has 64 steps, each step is 7 bytes.
+Each voice has 64 steps, each step is 7 bytes. Voice 7 is the open hi-hat
+track; it plays V6 using the open decay (Voice.aeg_dec_open).
 """
 import os
 import sys
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 from .enums import FlamAmount
+from .kit import NO_AUTOMATION, param_number
 
 
 PATTERN_SIZE = 3663
 MAGIC = b"PatV03"
+NAME_SIZE = 8
 MAGIC_OFFSET = 8
 STEPS_PER_VOICE = 64
 STEP_SIZE = 7
@@ -35,6 +38,7 @@ VOICE_FLAM_BASES = [0x1CE, 0x3CE, 0x5CE, 0x7CE, 0x9CE, 0xBCE, 0xDCE]
 TRIGGER_BASES = [0x0E0E, 0x0E16, 0x0E1E, 0x0E26, 0x0E2E, 0x0E36, 0x0E3E]
 
 # Other offsets
+SHUFFLE_OFFSET = 0x0E46  # 3654 - per-pattern shuffle
 MIX_LEN_OFFSET = 0x0E47  # 3655 - pattern length per voice (7 bytes)
 KIT_INDEX_OFFSET = 0x0E4E  # 3662 - kit index (last byte)
 
@@ -44,12 +48,14 @@ class Step:
     Represents a single step in a pattern voice.
 
     Step data is 7 bytes:
-    - Byte 0: Velocity (bits 0-6) + flag (bit 7)
+    - Byte 0: Velocity (bits 0-6) + legacy active flag (bit 7)
     - Byte 1: Probability (0-100)
     - Byte 2: Note (0-127, MIDI style where C0=0)
-    - Bytes 3-6: Unknown (possibly automation)
+    - Bytes 3-4: Automation slot 1 (parameter number, value)
+    - Bytes 5-6: Automation slot 2 (parameter number, value)
 
-    Flam and shift are stored separately (packed byte).
+    Whether a step plays is set by the voice's trigger bitmask, not by
+    anything stored here. Flam and shift are stored separately (packed byte).
     """
 
     def __init__(self, pattern: 'Pattern', voice_num: int, step_num: int):
@@ -101,7 +107,13 @@ class Step:
 
     @property
     def velocity_flag(self) -> bool:
-        """Velocity flag bit (bit 7, purpose unknown)."""
+        """
+        Legacy step-active bit (bit 7).
+
+        Left over from the sub-step sequencer: the V2 firmware ignores it for
+        playback (triggers come from the voice's trigger bitmask). Cleared
+        tracks set it on every 8th step.
+        """
         return bool(self._pattern._data[self._step_offset] & 0x80)
 
     @velocity_flag.setter
@@ -125,7 +137,12 @@ class Step:
 
     @property
     def note(self) -> int:
-        """Step note (0-127, MIDI style where C0=0)."""
+        """
+        Step note (0-127, MIDI style where C0=0).
+
+        60 plays the voice at its programmed pitch; other values transpose it
+        by (note - 60) semitones.
+        """
         return self._pattern._data[self._step_offset + 2]
 
     @note.setter
@@ -175,6 +192,70 @@ class Step:
         flam_val = packed & 0x0F
         self._pattern._data[self._flam_offset] = (shift_encoded << 4) | flam_val
 
+    def _automation_offset(self, slot: int) -> int:
+        """Get byte offset for an automation slot's parameter number."""
+        if slot not in (1, 2):
+            raise ValueError(f"Automation slot must be 1 or 2, got {slot}")
+        return self._step_offset + 3 + (slot - 1) * 2
+
+    def get_automation(self, slot: int) -> Optional[Tuple[int, int]]:
+        """
+        Get a step automation slot.
+
+        Args:
+            slot: Automation slot (1 or 2).
+
+        Returns:
+            (param_number, value), or None if the slot is empty. Decode the
+            parameter number with lxr.param_from_number().
+        """
+        offset = self._automation_offset(slot)
+        number = self._pattern._data[offset]
+        if number == NO_AUTOMATION:
+            return None
+        return number, self._pattern._data[offset + 1]
+
+    def set_automation(self, slot: int, param: Union[int, str], value: int, voice: int = None):
+        """
+        Set a step automation slot.
+
+        When the step plays, the parameter is set to value until a later
+        step changes it.
+
+        Args:
+            slot: Automation slot (1 or 2).
+            param: Firmware parameter number (0-246), or a parameter name
+                   such as 'flt_frq' or 'fx_dw'.
+            value: Raw parameter value (0-127).
+            voice: Voice (1-6) owning a named per-voice parameter. Defaults
+                   to this step's voice (V7 maps to V6).
+        """
+        offset = self._automation_offset(slot)
+        if isinstance(param, str):
+            if voice is None:
+                voice = min(self._voice_num, 6)
+            number = param_number(param, voice)
+        else:
+            number = param
+        if not 0 <= number <= 246:
+            raise ValueError(f"Parameter number must be 0-246, got {number}")
+        if not 0 <= value <= 127:
+            raise ValueError(f"Automation value must be 0-127, got {value}")
+        self._pattern._data[offset] = number
+        self._pattern._data[offset + 1] = value
+
+    def clear_automation(self, slot: int = None):
+        """
+        Clear a step automation slot.
+
+        Args:
+            slot: Automation slot (1 or 2). If None, clears both.
+        """
+        for s in ((1, 2) if slot is None else (slot,)):
+            offset = self._automation_offset(s)
+            self._pattern._data[offset] = NO_AUTOMATION
+            self._pattern._data[offset + 1] = 0
+
     def to_dict(self) -> dict:
         """Export step to a dictionary."""
         return {
@@ -184,6 +265,7 @@ class Step:
             'note': self.note,
             'flam': self.flam.name,
             'shift': self.shift,
+            'automation': [self.get_automation(1), self.get_automation(2)],
         }
 
 
@@ -471,6 +553,35 @@ class Pattern:
         return Pattern(bytes(self._data))
 
     @property
+    def name(self) -> str:
+        """Pattern name (up to 8 characters). The firmware uses it for the filename."""
+        if self._data is None:
+            raise ValueError("Pattern not initialized")
+        return self._data[0:NAME_SIZE].decode('ascii', errors='replace').rstrip('\x00 ')
+
+    @name.setter
+    def name(self, value: str):
+        if self._data is None:
+            raise ValueError("Pattern not initialized")
+        name_bytes = value.encode('ascii', errors='replace')[:NAME_SIZE]
+        self._data[0:NAME_SIZE] = name_bytes.ljust(NAME_SIZE, b'\x00')
+
+    @property
+    def shuffle(self) -> int:
+        """Pattern shuffle amount (0-127)."""
+        if self._data is None:
+            raise ValueError("Pattern not initialized")
+        return self._data[SHUFFLE_OFFSET]
+
+    @shuffle.setter
+    def shuffle(self, value: int):
+        if self._data is None:
+            raise ValueError("Pattern not initialized")
+        if not 0 <= value <= 127:
+            raise ValueError(f"Shuffle must be 0-127, got {value}")
+        self._data[SHUFFLE_OFFSET] = value
+
+    @property
     def kit_index(self) -> int:
         """Kit/SND file index (0-63)."""
         if self._data is None:
@@ -544,6 +655,8 @@ class Pattern:
     def to_dict(self) -> dict:
         """Export pattern to a dictionary."""
         return {
+            'name': self.name,
+            'shuffle': self.shuffle,
             'kit_index': self.kit_index,
             'voices': [self.voice(i).to_dict() for i in range(1, 8)]
         }

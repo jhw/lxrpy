@@ -10,6 +10,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lxr import GlobalConfig
+from lxr import MidiRouting, MidiFilter, ClockInPpq, ClockOutPpq, PatternMode
 
 
 class TestGlobalConfig(unittest.TestCase):
@@ -61,7 +62,7 @@ class TestGlobalConfig(unittest.TestCase):
         config = GlobalConfig.init()
 
         with self.assertRaises(ValueError):
-            config.global_midi_channel = 0
+            config.global_midi_channel = -1
         with self.assertRaises(ValueError):
             config.global_midi_channel = 17
 
@@ -211,6 +212,77 @@ class TestGlobalConfig(unittest.TestCase):
         config = GlobalConfig.init()
         config.bpm = 120
         self.assertIn('120', repr(config))
+
+
+class TestGlobalSettings(unittest.TestCase):
+    """Tests for the remaining GLO.CFG settings mapped from the firmware."""
+
+    def setUp(self):
+        self.config = GlobalConfig.init()
+
+    def test_global_midi_channel_all(self):
+        """0 means all channels (firmware default)."""
+        self.config.global_midi_channel = 0
+        self.assertEqual(self.config.global_midi_channel, 0)
+
+    def test_offsets(self):
+        """Each setting writes its firmware byte."""
+        c = self.config
+        c.follow = True
+        c.screensaver = False
+        c.midi_routing = MidiRouting.M2U
+        c.midi_tx_filter = MidiFilter.NOTES | MidiFilter.CC
+        c.midi_rx_filter = MidiFilter.NONE
+        c.clock_in_ppq = ClockInPpq.PPQ_24
+        c.clock_out_ppq = ClockOutPpq.PPQ_48
+        c.bar_reset = False
+        c.pattern_mode = PatternMode.OFF
+        d = c.to_bytes()
+        self.assertEqual([d[i] for i in (8, 10, 13, 14, 15, 16, 17, 20, 29)],
+                         [1, 0, 4, 5, 0, 1, 5, 0, 0])
+
+    def test_read_back(self):
+        """Settings read back as their enum types."""
+        c = self.config
+        c.midi_routing = MidiRouting.A2M
+        c.midi_rx_filter = MidiFilter.SYSTEM
+        c.clock_out_ppq = ClockOutPpq.PPQ_16
+        self.assertEqual(c.midi_routing, MidiRouting.A2M)
+        self.assertEqual(c.midi_rx_filter, MidiFilter.SYSTEM)
+        self.assertEqual(c.clock_out_ppq, ClockOutPpq.PPQ_16)
+
+    def test_template_defaults(self):
+        """Template matches firmware defaults for these settings."""
+        c = self.config
+        self.assertEqual(c.midi_tx_filter, MidiFilter.ALL)
+        self.assertEqual(c.midi_rx_filter, MidiFilter.ALL)
+        self.assertTrue(c.screensaver)
+        self.assertTrue(c.bar_reset)
+        self.assertEqual(c.pattern_mode, PatternMode.AUTO)
+        self.assertEqual(c.to_bytes()[29], 1)
+
+    def test_pattern_mode_transient_value(self):
+        """The firmware's internal value 2 reads as AUTO."""
+        data = bytearray(self.config.to_bytes())
+        data[29] = 2
+        self.assertEqual(GlobalConfig(bytes(data)).pattern_mode, PatternMode.AUTO)
+
+    def test_invalid(self):
+        """Out-of-range values raise."""
+        with self.assertRaises(ValueError):
+            self.config.midi_routing = 6
+        with self.assertRaises(ValueError):
+            self.config.midi_tx_filter = 16
+        with self.assertRaises(ValueError):
+            self.config.clock_in_ppq = 2
+
+    def test_to_dict(self):
+        """to_dict exports the new settings."""
+        d = self.config.to_dict()
+        for key in ('follow', 'screensaver', 'midi_routing', 'midi_tx_filter',
+                    'midi_rx_filter', 'clock_in_ppq', 'clock_out_ppq',
+                    'bar_reset', 'pattern_mode'):
+            self.assertIn(key, d)
 
 
 if __name__ == '__main__':

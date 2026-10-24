@@ -3,7 +3,12 @@ LXR-02 Kit/Sound file handling.
 
 Kit files (.SND) are 255 bytes containing:
 - 8-byte name
-- 247 bytes of parameter data for 6 voices
+- 247 bytes of parameter data for 6 voices plus kit-level FX/morph settings
+
+The parameter bytes are the firmware's sound parameter array in enum order
+(Parameters.h in the LXR firmware), so file offset = 8 + firmware parameter
+number. The same parameter number is used by step automation and, offset by
+the modulation target table, by LFO and velocity modulation destinations.
 
 Each voice has different synthesis models:
 - V1-V3: Standard (Osc + FM + Mod)
@@ -13,9 +18,12 @@ Each voice has different synthesis models:
 import os
 import sys
 
+from typing import Optional, Tuple
+
 from .enums import (
     Waveform, FmMode, ClickWave, FilterType,
-    LfoWave, LfoSync, LfoRetrig, OutputRouting
+    LfoWave, LfoSync, LfoRetrig, OutputRouting,
+    FxType, FxDistType, FxRatio, FxReverbType, FxDelayType
 )
 
 
@@ -38,6 +46,7 @@ PARAM_OFFSETS = {
     'aeg_dec': [58, 60, 62, 64, 66, 68],
     'aeg_slp': [70, 71, 72, 73, 74, 75],
     'aeg_rpt': [None, None, None, 76, 77, None],  # V4-V5 only
+    'aeg_dec_open': [None, None, None, None, None, 69],  # V6 only (open hi-hat, track 7)
     # FM screen (V1-V3)
     'fm_wav': [28, 29, 30, None, 31, 33],
     'fm_amt': [90, 92, 94, None, None, None],  # V1-V3 only
@@ -54,8 +63,8 @@ PARAM_OFFSETS = {
     'mod_mod': [82, 83, 84, 85, None, None],  # V1-V4 only
     'mod_slp': [86, 87, 88, 89, None, None],  # V1-V4 only
     'mod_vol': [145, 146, 147, 148, 149, 150],
-    'mod_amt': [151, 152, 153, 154, None, None],  # V1-V4 only
-    'mod_dst': [157, 158, 159, 160, None, None],  # V1-V4 only
+    'mod_amt': [151, 152, 153, 154, 155, 156],
+    'mod_dst': [157, 158, 159, 160, 161, 162],
     # Click screen
     'click_vol': [205, 206, 207, 208, 209, 210],
     'click_wav': [211, 212, 213, 214, 215, 216],
@@ -106,45 +115,162 @@ ENUM_PARAMS = {
     'mix_out': OutputRouting,
 }
 
-# Voice byte ranges for copying entire voices
-# These are the byte ranges that contain all parameters for each voice
-# When copying a voice, we need to copy all these disparate ranges
-VOICE_BYTE_RANGES = {
-    1: [(9, 10), (16, 18), (28, 29), (45, 46), (51, 52), (57, 59), (70, 71),
-        (78, 79), (82, 83), (86, 87), (90, 92), (96, 97), (102, 103),
-        (110, 111), (116, 117), (123, 124), (129, 130), (136, 137),
-        (142, 143), (145, 146), (151, 152), (157, 158), (163, 164),
-        (169, 170), (175, 176), (181, 182), (187, 188), (193, 194),
-        (199, 200), (205, 206), (211, 212), (217, 218), (223, 224), (236, 237)],
-    2: [(10, 11), (18, 20), (29, 30), (46, 47), (52, 53), (59, 61), (71, 72),
-        (79, 80), (83, 84), (87, 88), (92, 94), (97, 98), (103, 105),
-        (111, 112), (117, 118), (124, 125), (130, 131), (137, 138),
-        (143, 144), (146, 147), (152, 153), (158, 159), (164, 165),
-        (170, 171), (176, 177), (182, 183), (188, 189), (194, 195),
-        (200, 201), (206, 207), (212, 213), (218, 219), (224, 225), (237, 238)],
-    3: [(11, 12), (20, 22), (30, 31), (47, 48), (53, 54), (61, 63), (72, 73),
-        (80, 81), (84, 85), (88, 89), (94, 96), (98, 99), (104, 105),
-        (112, 113), (118, 119), (125, 126), (131, 132), (138, 139),
-        (144, 145), (147, 148), (153, 154), (159, 160), (165, 166),
-        (171, 172), (177, 178), (183, 184), (189, 190), (195, 196),
-        (201, 202), (207, 208), (213, 214), (219, 220), (225, 226), (238, 239)],
-    4: [(12, 13), (22, 24), (35, 37), (48, 49), (54, 55), (63, 65), (73, 74),
-        (76, 77), (81, 82), (85, 86), (89, 90), (99, 100), (107, 108),
-        (113, 114), (119, 120), (126, 127), (132, 133), (139, 140),
-        (148, 149), (154, 155), (160, 161), (166, 167), (172, 173),
-        (178, 179), (184, 185), (190, 191), (196, 197), (202, 203),
-        (208, 209), (214, 215), (220, 221), (226, 227), (239, 240)],
-    5: [(14, 15), (24, 26), (31, 33), (37, 41), (49, 50), (55, 56), (65, 67),
-        (74, 75), (77, 78), (100, 101), (108, 109), (114, 115), (120, 121),
-        (127, 128), (133, 134), (140, 141), (149, 150), (167, 168),
-        (173, 174), (179, 180), (185, 186), (191, 192), (197, 198),
-        (203, 204), (209, 210), (215, 216), (221, 222), (227, 228), (240, 241)],
-    6: [(15, 16), (26, 28), (33, 35), (41, 45), (50, 51), (56, 57), (67, 70),
-        (75, 76), (101, 102), (109, 110), (115, 116), (121, 123),
-        (128, 129), (134, 136), (141, 142), (150, 151), (168, 169),
-        (174, 175), (180, 181), (186, 187), (192, 193), (198, 199),
-        (204, 205), (210, 211), (216, 217), (222, 223), (228, 229), (241, 242)],
+# Kit-level parameter offsets (not per voice)
+KIT_PARAM_OFFSETS = {
+    'srt_all': 122,    # Global sample rate reduction (all voices)
+    # FX screen
+    'fx_typ': 242,
+    'fx_out': 243,     # FX bus output routing (ST1-R2, no FX)
+    'fx_dw': 244,      # Dry/wet (0-100)
+    'fx_dis': 245,     # Drive distortion type
+    'fx_p1': 246,      # P1-P4 meaning depends on fx_typ
+    'fx_p2': 247,
+    'fx_p3': 248,
+    'fx_p4': 249,
+    'fx_rat': 250,     # Compressor ratio
+    'fx_wav': 251,     # Ring modulator waveform
+    'fx_rev': 252,
+    'fx_del': 253,
+    # Morph
+    'morph_kit': 254,  # Kit index used as the morph destination
 }
+
+KIT_ENUM_PARAMS = {
+    'fx_typ': FxType,
+    'fx_out': OutputRouting,
+    'fx_dis': FxDistType,
+    'fx_rat': FxRatio,
+    'fx_wav': Waveform,
+    'fx_rev': FxReverbType,
+    'fx_del': FxDelayType,
+}
+
+# Display value ranges where they differ from the default 0-127
+PARAM_RANGES = {
+    'mod_vol': (0, 1),
+    'mod_dst': (0, 228),  # Index into MOD_TARGETS
+    'lfo_dst': (0, 228),
+    'lfo_voi': (1, 6),
+    'fx_dw': (0, 100),
+    'fx_out': (0, 5),    # OutputRouting without FX
+}
+
+# Modulation target table (modTargets[] in the firmware's Cc2Text.c).
+# lfo_dst and mod_dst store an index into this table; each entry is a
+# firmware parameter number (file offset - 8). Index 0 is off and index 1
+# is the kit-level sample rate; the rest are grouped per voice, see
+# MOD_TARGET_VOICE_RANGES.
+MOD_TARGETS = [
+      0, 114,   8,   9,   1, 228,  49,  50,  62,  70,  78,  74, 149, 143, 137,  82,
+     83,  20, 134, 203, 197, 209,  37,  43, 191, 128, 115, 179, 121, 155, 173, 185,
+     88,  94, 108, 102, 238, 239, 240, 241,  10,  11,   2, 229,  51,  52,  63,  71,
+     79,  75, 150, 144, 138,  84,  85,  21, 135, 204, 198, 210,  38,  44, 192, 129,
+    116, 180, 122, 156, 174, 186,  89,  95, 109, 103, 238, 239, 240, 241,  12,  13,
+      3, 230,  53,  54,  64,  72,  80,  76, 151, 145, 139,  86,  87,  22, 136, 205,
+    199, 211,  39,  45, 193, 130, 117, 181, 123, 157, 175, 187,  90,  96, 110, 104,
+    238, 239, 240, 241,  14,  15,  27,  28,   4, 231,  55,  56,  68,  65,  73,  81,
+     77, 152, 146, 140, 206, 200, 212,  40,  46, 194, 131, 118, 182, 124, 158, 176,
+    188,  91,  99, 111, 105, 238, 239, 240, 241,  16,  17,   6, 232,  57,  58,  69,
+     66, 153, 147, 141,  29,  30,  31,  32,  23,  24, 207, 201, 213,  41,  47, 195,
+    132, 119, 183, 125, 159, 177, 189,  92, 100, 112, 106, 238, 239, 240, 241,  18,
+     19,   7, 233,  59,  60,  61,  67, 154, 148, 142,  33,  34,  35,  36,  25,  26,
+    208, 202, 214,  42,  48, 196, 133, 120, 184, 126, 160, 178, 190,  93, 101, 113,
+    107, 238, 239, 240, 241,
+]
+
+# Inclusive index ranges into MOD_TARGETS for each voice (V1-V6)
+MOD_TARGET_VOICE_RANGES = [(2, 39), (40, 77), (78, 115), (116, 152), (153, 190), (191, 228)]
+
+# Step automation slot value meaning "no automation"
+NO_AUTOMATION = 0xFF
+
+
+def param_number(param: str, voice: int = None) -> int:
+    """
+    Get the firmware parameter number for a named parameter.
+
+    This is the value stored in step automation slots (file offset - 8).
+
+    Args:
+        param: Parameter name, either per-voice (e.g. 'flt_frq') or
+               kit-level (e.g. 'fx_dw').
+        voice: Voice number (1-6). Required for per-voice parameters.
+
+    Returns:
+        Firmware parameter number.
+    """
+    if param in KIT_PARAM_OFFSETS:
+        return KIT_PARAM_OFFSETS[param] - KIT_NAME_SIZE
+    offsets = PARAM_OFFSETS.get(param)
+    if offsets is None:
+        raise ValueError(f"Unknown parameter: {param}")
+    if voice is None or not 1 <= voice <= 6:
+        raise ValueError(f"Voice must be 1-6 for {param}, got {voice}")
+    offset = offsets[voice - 1]
+    if offset is None:
+        raise ValueError(f"Parameter {param} not available for voice {voice}")
+    return offset - KIT_NAME_SIZE
+
+
+def param_from_number(number: int) -> Optional[Tuple[str, Optional[int]]]:
+    """
+    Look up a firmware parameter number.
+
+    Args:
+        number: Firmware parameter number (file offset - 8).
+
+    Returns:
+        (param, voice) for per-voice parameters, (param, None) for kit-level
+        parameters, or None if the number isn't a mapped parameter.
+    """
+    offset = number + KIT_NAME_SIZE
+    for param, offsets in PARAM_OFFSETS.items():
+        if offset in offsets:
+            return param, offsets.index(offset) + 1
+    for param, kit_offset in KIT_PARAM_OFFSETS.items():
+        if offset == kit_offset:
+            return param, None
+    return None
+
+
+def mod_target(index: int) -> Optional[Tuple[str, Optional[int]]]:
+    """
+    Decode a modulation target index (lfo_dst, mod_dst).
+
+    Args:
+        index: Index into the modulation target table (0-228).
+
+    Returns:
+        (param, voice) as for param_from_number, or None for 0 (off).
+    """
+    if not 0 <= index < len(MOD_TARGETS):
+        raise ValueError(f"Mod target must be 0-{len(MOD_TARGETS) - 1}, got {index}")
+    if index == 0:
+        return None
+    return param_from_number(MOD_TARGETS[index])
+
+
+def mod_target_index(param: str, voice: int = None) -> int:
+    """
+    Encode a modulation target for lfo_dst or mod_dst.
+
+    Args:
+        param: Parameter name, per-voice or kit-level.
+        voice: Target voice (1-6). Required for per-voice parameters; for
+               kit-level FX parameters selects which voice's entry to use
+               (defaults to the global entry for srt_all, V1 otherwise).
+
+    Returns:
+        Index into the modulation target table.
+    """
+    if param == 'srt_all' and voice is None:
+        return 1
+    number = param_number(param, voice)
+    start, end = MOD_TARGET_VOICE_RANGES[(voice or 1) - 1]
+    for i in range(start, end + 1):
+        if MOD_TARGETS[i] == number:
+            return i
+    raise ValueError(f"{param} is not a modulation target for voice {voice}")
 
 
 class Voice:
@@ -210,12 +336,9 @@ class Voice:
     def _set_value(self, param: str, value: int):
         """Set display value for a parameter (with center offset applied)."""
         center = CENTERED_PARAMS.get(param, 0)
-        raw = value + center
-        if raw < 0:
-            raw = 0
-        if raw > 127:
-            raw = 127
-        self._set_raw(param, raw)
+        low, high = PARAM_RANGES.get(param, (0 - center, 127 - center))
+        value = max(low, min(high, value))
+        self._set_raw(param, value + center)
 
     def _get_enum(self, param: str):
         """Get enum value for a parameter."""
@@ -316,7 +439,7 @@ class Voice:
 
     @property
     def aeg_dec(self) -> int:
-        """Amplitude envelope decay (0-127)."""
+        """Amplitude envelope decay (0-127). Closed hi-hat decay on V6."""
         return self._get_value('aeg_dec')
 
     @aeg_dec.setter
@@ -331,6 +454,15 @@ class Voice:
     @aeg_slp.setter
     def aeg_slp(self, value: int):
         self._set_value('aeg_slp', value)
+
+    @property
+    def aeg_dec_open(self) -> int:
+        """Open hi-hat decay (0-127). V6 only; used when track 7 triggers V6."""
+        return self._get_value('aeg_dec_open')
+
+    @aeg_dec_open.setter
+    def aeg_dec_open(self, value: int):
+        self._set_value('aeg_dec_open', value)
 
     @property
     def aeg_rpt(self) -> int:
@@ -457,7 +589,7 @@ class Voice:
 
     @property
     def mod_vol(self) -> int:
-        """Modulator volume on/off (0-1)."""
+        """Velocity modulates volume, on/off (0-1)."""
         return self._get_value('mod_vol')
 
     @mod_vol.setter
@@ -466,7 +598,7 @@ class Voice:
 
     @property
     def mod_amt(self) -> int:
-        """Modulation target amount (0-127). V1-V4 only."""
+        """Velocity modulation amount (0-127)."""
         return self._get_value('mod_amt')
 
     @mod_amt.setter
@@ -475,7 +607,7 @@ class Voice:
 
     @property
     def mod_dst(self) -> int:
-        """Modulation destination (0=off). V1-V4 only."""
+        """Velocity modulation destination (0=off). Index into MOD_TARGETS, see mod_target()."""
         return self._get_value('mod_dst')
 
     @mod_dst.setter
@@ -580,7 +712,7 @@ class Voice:
 
     @property
     def lfo_voi(self) -> int:
-        """LFO voice target (0-127)."""
+        """LFO target voice (1-6)."""
         return self._get_value('lfo_voi')
 
     @lfo_voi.setter
@@ -589,7 +721,7 @@ class Voice:
 
     @property
     def lfo_dst(self) -> int:
-        """LFO destination (0=off)."""
+        """LFO destination (0=off). Index into MOD_TARGETS, see mod_target()."""
         return self._get_value('lfo_dst')
 
     @lfo_dst.setter
@@ -654,7 +786,7 @@ class Voice:
 
     @property
     def mix_srt(self) -> int:
-        """Mix start (0-127)."""
+        """Sample rate reduction (0-127)."""
         return self._get_value('mix_srt')
 
     @mix_srt.setter
@@ -828,6 +960,160 @@ class Kit:
         name_bytes = name_bytes.ljust(KIT_NAME_SIZE, b'\x00')
         self._data[0:KIT_NAME_SIZE] = name_bytes
 
+    def _get_kit_param(self, param: str):
+        """Get a kit-level parameter (enum where applicable)."""
+        if self._data is None:
+            raise ValueError("Kit not initialized")
+        raw = self._data[KIT_PARAM_OFFSETS[param]]
+        enum_class = KIT_ENUM_PARAMS.get(param)
+        if enum_class is not None:
+            try:
+                return enum_class(raw)
+            except ValueError:
+                return raw
+        return raw
+
+    def _set_kit_param(self, param: str, value):
+        """Set a kit-level parameter (enum or int, clamped to its range)."""
+        if self._data is None:
+            raise ValueError("Kit not initialized")
+        enum_class = KIT_ENUM_PARAMS.get(param)
+        if enum_class is not None and not isinstance(value, int):
+            raise ValueError(f"Expected {enum_class.__name__} or int, got {type(value)}")
+        if param == 'morph_kit':
+            low, high = 0, 63
+        else:
+            low, high = PARAM_RANGES.get(param, (0, 127))
+        self._data[KIT_PARAM_OFFSETS[param]] = max(low, min(high, int(value)))
+
+    # ===== Kit-level (FX / morph) =====
+
+    @property
+    def srt_all(self) -> int:
+        """Global sample rate reduction applied to all voices (0-127)."""
+        return self._get_kit_param('srt_all')
+
+    @srt_all.setter
+    def srt_all(self, value):
+        self._set_kit_param('srt_all', value)
+
+    @property
+    def fx_typ(self) -> FxType:
+        """FX bus processor type."""
+        return self._get_kit_param('fx_typ')
+
+    @fx_typ.setter
+    def fx_typ(self, value):
+        self._set_kit_param('fx_typ', value)
+
+    @property
+    def fx_out(self) -> OutputRouting:
+        """FX bus output routing (ST1-R2; FX is not valid here)."""
+        return self._get_kit_param('fx_out')
+
+    @fx_out.setter
+    def fx_out(self, value):
+        self._set_kit_param('fx_out', value)
+
+    @property
+    def fx_dw(self) -> int:
+        """FX dry/wet mix (0-100)."""
+        return self._get_kit_param('fx_dw')
+
+    @fx_dw.setter
+    def fx_dw(self, value):
+        self._set_kit_param('fx_dw', value)
+
+    @property
+    def fx_dis(self) -> FxDistType:
+        """FX drive distortion type."""
+        return self._get_kit_param('fx_dis')
+
+    @fx_dis.setter
+    def fx_dis(self, value):
+        self._set_kit_param('fx_dis', value)
+
+    @property
+    def fx_p1(self) -> int:
+        """FX parameter 1 (0-127). Meaning depends on fx_typ."""
+        return self._get_kit_param('fx_p1')
+
+    @fx_p1.setter
+    def fx_p1(self, value):
+        self._set_kit_param('fx_p1', value)
+
+    @property
+    def fx_p2(self) -> int:
+        """FX parameter 2 (0-127). Meaning depends on fx_typ."""
+        return self._get_kit_param('fx_p2')
+
+    @fx_p2.setter
+    def fx_p2(self, value):
+        self._set_kit_param('fx_p2', value)
+
+    @property
+    def fx_p3(self) -> int:
+        """FX parameter 3 (0-127). Meaning depends on fx_typ."""
+        return self._get_kit_param('fx_p3')
+
+    @fx_p3.setter
+    def fx_p3(self, value):
+        self._set_kit_param('fx_p3', value)
+
+    @property
+    def fx_p4(self) -> int:
+        """FX parameter 4 (0-127). Meaning depends on fx_typ."""
+        return self._get_kit_param('fx_p4')
+
+    @fx_p4.setter
+    def fx_p4(self, value):
+        self._set_kit_param('fx_p4', value)
+
+    @property
+    def fx_rat(self) -> FxRatio:
+        """FX compressor ratio."""
+        return self._get_kit_param('fx_rat')
+
+    @fx_rat.setter
+    def fx_rat(self, value):
+        self._set_kit_param('fx_rat', value)
+
+    @property
+    def fx_wav(self) -> Waveform:
+        """FX ring modulator waveform."""
+        return self._get_kit_param('fx_wav')
+
+    @fx_wav.setter
+    def fx_wav(self, value):
+        self._set_kit_param('fx_wav', value)
+
+    @property
+    def fx_rev(self) -> FxReverbType:
+        """FX reverb type."""
+        return self._get_kit_param('fx_rev')
+
+    @fx_rev.setter
+    def fx_rev(self, value):
+        self._set_kit_param('fx_rev', value)
+
+    @property
+    def fx_del(self) -> FxDelayType:
+        """FX delay type."""
+        return self._get_kit_param('fx_del')
+
+    @fx_del.setter
+    def fx_del(self, value):
+        self._set_kit_param('fx_del', value)
+
+    @property
+    def morph_kit(self) -> int:
+        """Kit index (0-63) used as the morph destination."""
+        return self._get_kit_param('morph_kit')
+
+    @morph_kit.setter
+    def morph_kit(self, value):
+        self._set_kit_param('morph_kit', value)
+
     def voice(self, num: int) -> Voice:
         """
         Get a Voice object for accessing voice parameters.
@@ -848,8 +1134,9 @@ class Kit:
         """
         Copy all voice data from another kit.
 
-        This copies the full binary data for the voice, including any unmapped bytes,
-        ensuring complete voice transfer.
+        Copies every per-voice parameter in PARAM_OFFSETS that exists on both
+        voices. Parameters a voice doesn't have (e.g. V4 noise, V5/V6 FM
+        gains) are skipped, and kit-level FX/morph settings are left alone.
 
         Args:
             source_kit: Source Kit to copy from.
@@ -874,7 +1161,12 @@ class Kit:
         """Export kit to a dictionary."""
         return {
             'name': self.name,
-            'voices': [self.voice(i).to_dict() for i in range(1, 7)]
+            'voices': [self.voice(i).to_dict() for i in range(1, 7)],
+            'kit': {
+                param: (val.name if hasattr(val, 'name') else val)
+                for param in KIT_PARAM_OFFSETS
+                for val in [self._get_kit_param(param)]
+            },
         }
 
     def __repr__(self) -> str:

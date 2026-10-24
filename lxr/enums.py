@@ -1,9 +1,9 @@
 """
 Enum definitions for LXR-02 parameters.
 
-Based on reverse-engineered LXR-02 binary format.
+Values match the name tables in the LXR firmware (menu/MenuText.h).
 """
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 
 
 class Waveform(IntEnum):
@@ -110,3 +110,82 @@ class FlamAmount(IntEnum):
     X4 = 3
     X6 = 4
     X8 = 5
+
+
+class FxType(IntEnum):
+    """Kit FX bus processor type (fx.typ)."""
+    OFF = 0
+    DRV = 1   # Drive/distortion
+    RNG = 2   # Ring modulator
+    CMP = 3   # Compressor
+    DEL = 4   # Delay
+
+
+class FxDistType(IntEnum):
+    """FX drive distortion type (fx.dis)."""
+    TUB = 0   # Tube
+    FLD = 1   # Fold
+    CLP = 2   # Clip
+
+
+class FxRatio(IntEnum):
+    """FX compressor ratio (fx.rat)."""
+    R1_1 = 0
+    R2_1 = 1
+    R3_1 = 2
+    R4_1 = 3
+    R6_1 = 4
+    R8_1 = 5
+
+
+class FxReverbType(IntEnum):
+    """FX reverb type (fx.rev)."""
+    PLT = 0   # Plate
+
+
+class FxDelayType(IntEnum):
+    """FX delay type (fx.del)."""
+    DEL = 0   # Delay
+    PP = 1    # Ping-pong
+
+
+class MidiRouting(IntEnum):
+    """Global MIDI routing (GLO.CFG mrt). U=USB, M=MIDI DIN, A=all."""
+    OFF = 0
+    U2M = 1
+    M2M = 2
+    A2M = 3
+    M2U = 4
+    M2A = 5
+
+
+class MidiFilter(IntFlag):
+    """Global MIDI TX/RX filter bitmask (GLO.CFG mtx/mrx). Set bits pass."""
+    NONE = 0
+    NOTES = 0x01
+    SYSTEM = 0x02
+    CC = 0x04
+    PROGRAM_CHANGE = 0x08
+    ALL = 0x0F
+
+
+class ClockInPpq(IntEnum):
+    """Trigger clock input resolution (GLO.CFG cki)."""
+    PPQ_4 = 0
+    PPQ_24 = 1
+
+
+class ClockOutPpq(IntEnum):
+    """Trigger clock output resolution (GLO.CFG cko)."""
+    PPQ_2 = 0
+    PPQ_4 = 1
+    PPQ_8 = 2
+    PPQ_16 = 3
+    PPQ_24 = 4
+    PPQ_48 = 5
+
+
+class PatternMode(IntEnum):
+    """Kit change mode (GLO.CFG kcm): AUTO loads the pattern's kit on pattern change."""
+    OFF = 0
+    AUTO = 1

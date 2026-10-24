@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lxr import Pattern, VoicePattern, Step, FlamAmount
 from lxr import format_pattern_filename
+from lxr import param_number
 
 
 class TestPattern(unittest.TestCase):
@@ -458,6 +459,120 @@ class TestFormatPatternFilename(unittest.TestCase):
             format_pattern_filename(-1, "TEST")
         with self.assertRaises(ValueError):
             format_pattern_filename(64, "TEST")
+
+
+class TestTemplatePattern(unittest.TestCase):
+    """The template must be a cleared pattern (firmware seq_clearTrack)."""
+
+    def test_template_is_blank(self):
+        """No triggers, 16 steps, neutral step data on every track."""
+        pattern = Pattern.init()
+        self.assertEqual(pattern.name, '')
+        self.assertEqual(pattern.shuffle, 0)
+        self.assertEqual(pattern.kit_index, 0)
+        for v in range(1, 8):
+            vp = pattern.voice(v)
+            self.assertEqual(vp.get_triggers(), [])
+            self.assertEqual(vp.length, 16)
+            for n in range(1, 65):
+                step = vp.step(n)
+                self.assertEqual(step.velocity, 127)
+                self.assertEqual(step.probability, 100)
+                self.assertEqual(step.note, 60)
+                self.assertEqual(step.flam, FlamAmount.OFF)
+                self.assertEqual(step.shift, 0)
+                self.assertIsNone(step.get_automation(1))
+                self.assertIsNone(step.get_automation(2))
+
+
+class TestPatternHeader(unittest.TestCase):
+    """Tests for pattern name and shuffle."""
+
+    def test_name(self):
+        """Name occupies the first 8 bytes and leaves the magic intact."""
+        pattern = Pattern.init()
+        pattern.name = "GROOVE"
+        self.assertEqual(pattern.name, "GROOVE")
+        pattern.name = "VERYLONGNAME"
+        self.assertEqual(pattern.name, "VERYLONG")
+        self.assertEqual(bytes(pattern._data[8:14]), b"PatV03")
+
+    def test_shuffle(self):
+        """Shuffle is stored per pattern at 0x0E46."""
+        pattern = Pattern.init()
+        pattern.shuffle = 42
+        self.assertEqual(pattern._data[0x0E46], 42)
+        self.assertEqual(pattern.shuffle, 42)
+        with self.assertRaises(ValueError):
+            pattern.shuffle = 128
+
+    def test_to_dict(self):
+        """to_dict exports name and shuffle."""
+        pattern = Pattern.init()
+        pattern.name = "AB"
+        pattern.shuffle = 9
+        d = pattern.to_dict()
+        self.assertEqual(d['name'], 'AB')
+        self.assertEqual(d['shuffle'], 9)
+
+
+class TestStepAutomation(unittest.TestCase):
+    """Tests for the two per-step automation slots (step bytes 3-6)."""
+
+    def setUp(self):
+        self.pattern = Pattern.init()
+        self.step = self.pattern.voice(2).step(5)
+
+    def test_set_by_number(self):
+        """Raw parameter number and value land in bytes 3-4 / 5-6."""
+        self.step.set_automation(1, 38, 100)
+        self.step.set_automation(2, 236, 7)
+        offset = self.step._step_offset
+        self.assertEqual(list(self.pattern._data[offset + 3:offset + 7]), [38, 100, 236, 7])
+        self.assertEqual(self.step.get_automation(1), (38, 100))
+        self.assertEqual(self.step.get_automation(2), (236, 7))
+
+    def test_set_by_name(self):
+        """Named parameters default to the step's own voice."""
+        self.step.set_automation(1, 'flt_frq', 64)
+        self.assertEqual(self.step.get_automation(1), (param_number('flt_frq', 2), 64))
+        self.step.set_automation(2, 'flt_frq', 10, voice=4)
+        self.assertEqual(self.step.get_automation(2), (param_number('flt_frq', 4), 10))
+
+    def test_voice7_maps_to_v6(self):
+        """Track 7 plays V6, so named parameters resolve to V6."""
+        step = self.pattern.voice(7).step(1)
+        step.set_automation(1, 'aeg_dec_open', 50)
+        self.assertEqual(step.get_automation(1), (param_number('aeg_dec_open', 6), 50))
+
+    def test_clear(self):
+        """Clearing writes the firmware's NO_AUTOMATION marker."""
+        self.step.set_automation(1, 38, 100)
+        self.step.set_automation(2, 39, 100)
+        self.step.clear_automation(1)
+        self.assertIsNone(self.step.get_automation(1))
+        self.assertIsNotNone(self.step.get_automation(2))
+        self.step.clear_automation()
+        self.assertIsNone(self.step.get_automation(2))
+        self.assertEqual(self.pattern._data[self.step._step_offset + 3], 0xFF)
+
+    def test_invalid(self):
+        """Bad slot, parameter number or value raise."""
+        with self.assertRaises(ValueError):
+            self.step.set_automation(3, 38, 1)
+        with self.assertRaises(ValueError):
+            self.step.set_automation(1, 247, 1)
+        with self.assertRaises(ValueError):
+            self.step.set_automation(1, 38, 128)
+
+    def test_does_not_touch_other_fields(self):
+        """Automation leaves velocity, probability and note alone."""
+        self.step.velocity = 90
+        self.step.probability = 50
+        self.step.note = 62
+        self.step.set_automation(1, 38, 100)
+        self.step.set_automation(2, 39, 101)
+        self.assertEqual((self.step.velocity, self.step.probability, self.step.note), (90, 50, 62))
 
 
 if __name__ == '__main__':

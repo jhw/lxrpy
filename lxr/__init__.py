@@ -2,9 +2,10 @@
 lxrpy - Python tools for Erica Synths LXR-02 drum synthesizer files.
 
 This package provides tools for reading and writing LXR-02 binary files:
-- Kit/Sound files (.SND) - 255 bytes, synthesis parameters for 6 voices
-- Pattern files (.PAT) - 3663 bytes, step sequencer data for 6 voices
-- Global config (GLO.CFG) - 30 bytes, BPM and MIDI settings
+- Kit/Sound files (.SND) - 255 bytes, synthesis parameters for 6 voices + FX
+- Pattern files (.PAT) - 3663 bytes, step sequencer data for 7 tracks
+- Song files (.SNG) - 72 bytes, pattern play order
+- Global config (GLO.CFG) - 30 bytes, BPM, MIDI and clock settings
 
 Example usage:
 
@@ -48,12 +49,27 @@ from .enums import (
     LfoRetrig,
     OutputRouting,
     FlamAmount,
+    FxType,
+    FxDistType,
+    FxRatio,
+    FxReverbType,
+    FxDelayType,
+    MidiRouting,
+    MidiFilter,
+    ClockInPpq,
+    ClockOutPpq,
+    PatternMode,
 )
 
 from .kit import (
     Kit,
     Voice,
     format_kit_filename,
+    param_number,
+    param_from_number,
+    mod_target,
+    mod_target_index,
+    MOD_TARGETS,
 )
 
 from .pattern import (
@@ -61,6 +77,11 @@ from .pattern import (
     VoicePattern,
     Step,
     format_pattern_filename,
+)
+
+from .song import (
+    Song,
+    format_song_filename,
 )
 
 from .config import (
@@ -90,15 +111,33 @@ __all__ = [
     'LfoRetrig',
     'OutputRouting',
     'FlamAmount',
+    'FxType',
+    'FxDistType',
+    'FxRatio',
+    'FxReverbType',
+    'FxDelayType',
+    'MidiRouting',
+    'MidiFilter',
+    'ClockInPpq',
+    'ClockOutPpq',
+    'PatternMode',
     # Kit
     'Kit',
     'Voice',
     'format_kit_filename',
+    'param_number',
+    'param_from_number',
+    'mod_target',
+    'mod_target_index',
+    'MOD_TARGETS',
     # Pattern
     'Pattern',
     'VoicePattern',
     'Step',
     'format_pattern_filename',
+    # Song
+    'Song',
+    'format_song_filename',
     # Config
     'GlobalConfig',
     # Project utilities

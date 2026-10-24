@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lxr import Kit, Voice, Waveform, FmMode, ClickWave, FilterType
 from lxr import LfoWave, LfoSync, LfoRetrig, OutputRouting
 from lxr import format_kit_filename
+from lxr import FxType, FxDistType, FxRatio, FxReverbType, FxDelayType
+from lxr import param_number, param_from_number, mod_target, mod_target_index, MOD_TARGETS
 
 
 class TestKit(unittest.TestCase):
@@ -416,6 +418,146 @@ class TestFormatKitFilename(unittest.TestCase):
             format_kit_filename(-1, "KICK")
         with self.assertRaises(ValueError):
             format_kit_filename(64, "KICK")
+
+
+class TestFirmwareParams(unittest.TestCase):
+    """Tests for parameters mapped from the LXR firmware (Parameters.h)."""
+
+    def setUp(self):
+        self.kit = Kit.init()
+
+    def test_aeg_dec_open_v6_only(self):
+        """Open hi-hat decay is byte 69 and only exists on V6."""
+        self.kit.voice(6).aeg_dec_open = 99
+        self.assertEqual(self.kit._data[69], 99)
+        self.assertEqual(self.kit.voice(6).aeg_dec_open, 99)
+        for v in range(1, 6):
+            self.assertFalse(self.kit.voice(v).has_param('aeg_dec_open'))
+
+    def test_velocity_mod_all_voices(self):
+        """Velocity mod amount/destination exist on V5 and V6."""
+        self.kit.voice(5).mod_amt = 11
+        self.kit.voice(6).mod_amt = 12
+        self.kit.voice(5).mod_dst = 160
+        self.kit.voice(6).mod_dst = 200
+        self.assertEqual(list(self.kit._data[155:157]), [11, 12])
+        self.assertEqual(list(self.kit._data[161:163]), [160, 200])
+
+    def test_mod_dst_range(self):
+        """Mod destinations are indices into MOD_TARGETS (0-228), not 0-127."""
+        self.kit.voice(1).lfo_dst = 228
+        self.assertEqual(self.kit.voice(1).lfo_dst, 228)
+        self.kit.voice(1).lfo_dst = 300
+        self.assertEqual(self.kit.voice(1).lfo_dst, 228)
+
+    def test_lfo_voi_range(self):
+        """LFO target voice is clamped to 1-6."""
+        self.kit.voice(1).lfo_voi = 0
+        self.assertEqual(self.kit.voice(1).lfo_voi, 1)
+        self.kit.voice(1).lfo_voi = 9
+        self.assertEqual(self.kit.voice(1).lfo_voi, 6)
+
+    def test_fx_offsets(self):
+        """Kit-level FX parameters live at bytes 242-253."""
+        k = self.kit
+        k.fx_typ = FxType.CMP
+        k.fx_out = OutputRouting.L2
+        k.fx_dw = 50
+        k.fx_dis = FxDistType.CLP
+        k.fx_p1, k.fx_p2, k.fx_p3, k.fx_p4 = 1, 2, 3, 4
+        k.fx_rat = FxRatio.R8_1
+        k.fx_wav = Waveform.SAW
+        k.fx_rev = FxReverbType.PLT
+        k.fx_del = FxDelayType.PP
+        self.assertEqual(list(k._data[242:254]), [3, 4, 50, 2, 1, 2, 3, 4, 5, 2, 0, 1])
+        self.assertEqual(k.fx_typ, FxType.CMP)
+        self.assertEqual(k.fx_rat, FxRatio.R8_1)
+
+    def test_fx_ranges(self):
+        """Dry/wet clamps to 0-100 and FX routing can't target the FX bus."""
+        self.kit.fx_dw = 200
+        self.assertEqual(self.kit.fx_dw, 100)
+        self.kit.fx_out = OutputRouting.FX
+        self.assertEqual(self.kit.fx_out, OutputRouting.R2)
+
+    def test_morph_kit_and_srt_all(self):
+        """Morph destination is byte 254, global sample rate byte 122."""
+        self.kit.morph_kit = 12
+        self.kit.srt_all = 40
+        self.assertEqual(self.kit._data[254], 12)
+        self.assertEqual(self.kit._data[122], 40)
+
+    def test_kit_params_survive_save(self):
+        """Kit-level parameters round-trip through a file."""
+        self.kit.fx_typ = FxType.DEL
+        self.kit.fx_p2 = 77
+        with tempfile.NamedTemporaryFile(suffix='.SND', delete=False) as tmp:
+            try:
+                self.kit.save(tmp.name)
+                loaded = Kit.from_file(tmp.name)
+                self.assertEqual(loaded.fx_typ, FxType.DEL)
+                self.assertEqual(loaded.fx_p2, 77)
+            finally:
+                os.unlink(tmp.name)
+
+    def test_to_dict_includes_kit_params(self):
+        """to_dict exports kit-level parameters."""
+        self.kit.fx_typ = FxType.RNG
+        self.assertEqual(self.kit.to_dict()['kit']['fx_typ'], 'RNG')
+
+    def test_copy_voice_includes_new_params(self):
+        """Copying V5 to V6 carries velocity mod settings."""
+        source = Kit.init()
+        source.voice(5).mod_amt = 90
+        self.kit.copy_voice_from(source, 5, 6)
+        self.assertEqual(self.kit.voice(6).mod_amt, 90)
+
+
+class TestParamNumbers(unittest.TestCase):
+    """Tests for firmware parameter number lookups."""
+
+    def test_param_number(self):
+        """Parameter number is file offset minus the 8-byte name."""
+        self.assertEqual(param_number('osc_wav', 1), 1)
+        self.assertEqual(param_number('flt_frq', 2), 46 - 8)
+        self.assertEqual(param_number('fx_dw'), 244 - 8)
+
+    def test_param_number_errors(self):
+        """Per-voice parameters need a valid voice that has them."""
+        with self.assertRaises(ValueError):
+            param_number('flt_frq')
+        with self.assertRaises(ValueError):
+            param_number('osc_noi', 1)
+        with self.assertRaises(ValueError):
+            param_number('nope', 1)
+
+    def test_param_from_number(self):
+        """Lookup is the inverse of param_number."""
+        self.assertEqual(param_from_number(46 - 8), ('flt_frq', 2))
+        self.assertEqual(param_from_number(244 - 8), ('fx_dw', None))
+        self.assertIsNone(param_from_number(0))  # PAR_NONE
+
+    def test_mod_targets_decode(self):
+        """Every mod target decodes, and per-voice targets belong to their block."""
+        self.assertEqual(len(MOD_TARGETS), 229)
+        self.assertIsNone(mod_target(0))
+        self.assertEqual(mod_target(1), ('srt_all', None))
+        self.assertEqual(mod_target(2), ('osc_coa', 1))
+        self.assertEqual(mod_target(191), ('osc_coa', 6))
+        for i in range(1, len(MOD_TARGETS)):
+            self.assertIsNotNone(mod_target(i), i)
+
+    def test_mod_target_index_round_trip(self):
+        """Encoding then decoding a target returns it unchanged."""
+        for voice in range(1, 7):
+            i = mod_target_index('flt_frq', voice)
+            self.assertEqual(mod_target(i), ('flt_frq', voice))
+        self.assertEqual(mod_target_index('srt_all'), 1)
+
+    def test_mod_target_index_invalid(self):
+        """Parameters that can't be modulated raise."""
+        with self.assertRaises(ValueError):
+            mod_target_index('lfo_voi', 1)
 
 
 if __name__ == '__main__':
