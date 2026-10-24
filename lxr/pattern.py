@@ -43,6 +43,22 @@ MIX_LEN_OFFSET = 0x0E47  # 3655 - pattern length per voice (7 bytes)
 KIT_INDEX_OFFSET = 0x0E4E  # 3662 - kit index (last byte)
 
 
+def _encode_automation_param(number: int) -> int:
+    """
+    Encode a firmware parameter number for a step automation slot.
+
+    The firmware records CC-range parameters (below 128) as the sound
+    engine's CC number, param + 1 wrapped to 7 bits (CortexParser.c), and
+    higher parameters unchanged.
+    """
+    return (number + 1) & 0x7F if number < 128 else number
+
+
+def _decode_automation_param(stored: int) -> int:
+    """Decode a step automation slot byte to a firmware parameter number."""
+    return (stored - 1) & 0x7F if stored < 128 else stored
+
+
 class Step:
     """
     Represents a single step in a pattern voice.
@@ -51,8 +67,13 @@ class Step:
     - Byte 0: Velocity (bits 0-6) + legacy active flag (bit 7)
     - Byte 1: Probability (0-100)
     - Byte 2: Note (0-127, MIDI style where C0=0)
-    - Bytes 3-4: Automation slot 1 (parameter number, value)
-    - Bytes 5-6: Automation slot 2 (parameter number, value)
+    - Bytes 3-4: Automation slot 1 (encoded parameter number, value)
+    - Bytes 5-6: Automation slot 2 (encoded parameter number, value)
+
+    Automation parameter numbers below 128 are stored as the sound engine's
+    CC number, which is one higher than the parameter number (an offset
+    carried over from LXR v1, where CC 1 is the mod wheel). The Step API
+    converts, so get/set_automation always use firmware parameter numbers.
 
     Whether a step plays is set by the voice's trigger bitmask, not by
     anything stored here. Flam and shift are stored separately (packed byte).
@@ -210,10 +231,10 @@ class Step:
             parameter number with lxr.param_from_number().
         """
         offset = self._automation_offset(slot)
-        number = self._pattern._data[offset]
-        if number == NO_AUTOMATION:
+        stored = self._pattern._data[offset]
+        if stored == NO_AUTOMATION:
             return None
-        return number, self._pattern._data[offset + 1]
+        return _decode_automation_param(stored), self._pattern._data[offset + 1]
 
     def set_automation(self, slot: int, param: Union[int, str], value: int, voice: int = None):
         """
@@ -241,7 +262,7 @@ class Step:
             raise ValueError(f"Parameter number must be 0-246, got {number}")
         if not 0 <= value <= 127:
             raise ValueError(f"Automation value must be 0-127, got {value}")
-        self._pattern._data[offset] = number
+        self._pattern._data[offset] = _encode_automation_param(number)
         self._pattern._data[offset + 1] = value
 
     def clear_automation(self, slot: int = None):

@@ -69,7 +69,7 @@ Each voice within a pattern can have a different length (1-64 steps), enabling p
 ## Installation
 
 ```bash
-pip install git+https://github.com/jhw/lxrpy.git@v0.3.0
+pip install git+https://github.com/jhw/lxrpy.git@v0.3.1
 ```
 
 ## Features

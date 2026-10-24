@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lxr import Pattern, VoicePattern, Step, FlamAmount
 from lxr import format_pattern_filename
-from lxr import param_number
+from lxr import param_number, param_from_number
 
 
 class TestPattern(unittest.TestCase):
@@ -524,11 +524,11 @@ class TestStepAutomation(unittest.TestCase):
         self.step = self.pattern.voice(2).step(5)
 
     def test_set_by_number(self):
-        """Raw parameter number and value land in bytes 3-4 / 5-6."""
+        """Parameters below 128 are stored as CC number (param + 1); higher ones as-is."""
         self.step.set_automation(1, 38, 100)
         self.step.set_automation(2, 236, 7)
         offset = self.step._step_offset
-        self.assertEqual(list(self.pattern._data[offset + 3:offset + 7]), [38, 100, 236, 7])
+        self.assertEqual(list(self.pattern._data[offset + 3:offset + 7]), [39, 100, 236, 7])
         self.assertEqual(self.step.get_automation(1), (38, 100))
         self.assertEqual(self.step.get_automation(2), (236, 7))
 
@@ -544,6 +544,22 @@ class TestStepAutomation(unittest.TestCase):
         step = self.pattern.voice(7).step(1)
         step.set_automation(1, 'aeg_dec_open', 50)
         self.assertEqual(step.get_automation(1), (param_number('aeg_dec_open', 6), 50))
+
+    def test_encoding_boundaries(self):
+        """The 7-bit wrap and the CC/CC2 boundary round-trip."""
+        offset = self.step._step_offset + 3
+        for number, stored in [(0, 1), (126, 127), (127, 0), (128, 128), (246, 246)]:
+            self.step.set_automation(1, number, 1)
+            self.assertEqual(self.pattern._data[offset], stored, number)
+            self.assertEqual(self.step.get_automation(1), (number, 1))
+
+    def test_decodes_device_recording(self):
+        """Bytes recorded on the device decode to the expected parameters."""
+        offset = self.step._step_offset + 3
+        # V1 track recording seen in a real file: global sample rate and V1 fine tune
+        self.pattern._data[offset:offset + 4] = bytes([115, 2, 10, 4])
+        self.assertEqual(param_from_number(self.step.get_automation(1)[0]), ('srt_all', None))
+        self.assertEqual(param_from_number(self.step.get_automation(2)[0]), ('osc_fin', 1))
 
     def test_clear(self):
         """Clearing writes the firmware's NO_AUTOMATION marker."""

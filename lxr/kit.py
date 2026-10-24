@@ -189,7 +189,8 @@ def param_number(param: str, voice: int = None) -> int:
     """
     Get the firmware parameter number for a named parameter.
 
-    This is the value stored in step automation slots (file offset - 8).
+    This is file offset - 8, and the number Step.get/set_automation use
+    (the slot byte itself is encoded, see lxr.pattern).
 
     Args:
         param: Parameter name, either per-voice (e.g. 'flt_frq') or
